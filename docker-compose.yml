@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  frontend:
+    build: .
+    ports:
+      - "3000:80"
+    environment:
+      - NODE_ENV=production
+    networks:
+      - pest-management-network
+    restart: unless-stopped
+
+networks:
+  pest-management-network:
+    driver: bridge
