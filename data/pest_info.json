@@ -1,0 +1,14 @@
+{
+  "weevil": ["Diatomaceous earth", "Neem oil spray", "Remove infected plants"],
+  "wasp": ["Peppermint oil spray", "Note: Many wasps are beneficial"],
+  "snail": ["Beer traps", "Copper tape barriers", "Iron phosphate bait"],
+  "slug": ["Beer traps", "Coffee grounds", "Iron phosphate pellets"],
+  "moth": ["Pheromone traps", "Bt spray for larvae", "Row covers"],
+  "grasshopper": ["Neem oil", "Garlic spray", "Kaolin clay"],
+  "earwig": ["Oil traps", "Diatomaceous earth"],
+  "earthworms": ["Beneficial - do not treat!"],
+  "caterpillar": ["Bt spray", "Hand-picking", "Neem oil"],
+  "beetle": ["Hand-pick into soapy water", "Neem oil", "Pyrethrin"],
+  "bees": ["DO NOT TREAT - Essential pollinators!"],
+  "ants": ["Cinnamon barriers", "Control aphids first"]
+}

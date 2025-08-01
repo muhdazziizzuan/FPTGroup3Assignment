@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Pest ID</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body {
+            font-family: Arial;
+            max-width: 400px;
+            margin: 50px auto;
+            padding: 20px;
+            text-align: center;
+        }
+        #upload {
+            padding: 50px;
+            border: 2px dashed #4CAF50;
+            margin: 20px 0;
+            cursor: pointer;
+        }
+        #results {
+            display: none;
+            text-align: left;
+            background: #f0f0f0;
+            padding: 20px;
+            margin-top: 20px;
+        }
+        button {
+            background: #4CAF50;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            cursor: pointer;
+            font-size: 16px;
+        }
+    </style>
+</head>
+<body>
+    <h1>🐛 Pest Identifier</h1>
+    
+    <div id="upload" onclick="document.getElementById('file').click()">
+        Click to Upload Pest Photo
+        <input id="file" type="file" accept="image/*" style="display:none" onchange="analyze()">
+    </div>
+    
+    <div id="results"></div>
+    
+    <script>
+        function analyze() {
+            const file = document.getElementById('file').files[0];
+            const formData = new FormData();
+            formData.append('image', file);
+            
+            document.getElementById('results').innerHTML = 'Analyzing...';
+            document.getElementById('results').style.display = 'block';
+            
+            fetch('/analyze', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                let html = `<h2>🔍 ${data.pest}</h2>`;
+                html += '<h3>Organic Treatments:</h3><ul>';
+                data.treatments.forEach(t => {
+                    html += `<li>${t}</li>`;
+                });
+                html += '</ul>';
+                html += `<p><em>${data.advice}</em></p>`;
+                document.getElementById('results').innerHTML = html;
+            });
+        }
+    </script>
+</body>
+</html>
