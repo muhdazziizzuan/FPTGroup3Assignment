@@ -1,246 +1,202 @@
-import os, torch, time
-from torch import nn, optim
-from torchvision import datasets, transforms
-from torch.utils.data import DataLoader
+import os, random, time, json
 from pathlib import Path
-import random
-import numpy as np
 from collections import Counter
 
-# --- Constants ---------------------------------------------
-DATA_DIR = Path("data")
+import numpy as np
+import torch
+from torch import nn, optim
+from torch.utils.data import DataLoader, WeightedRandomSampler
+from torchvision import datasets, transforms
+
+DATA_DIR   = Path("data")
 BATCH_SIZE = 16
-EPOCHS = 100
-LR = 0.001
+EPOCHS     = 100
+LR         = 1e-3              # lower LR for Adam on MobileNet
 MODEL_FILE = "pest_classifier2.pth"
 
-# --- Model Architecture ------------------------------------
-class ImprovedPestCNN(nn.Module):
-    def __init__(self, num_classes=12):
-        super(ImprovedPestCNN, self).__init__()
-        
-        # Deeper feature extraction
-        self.features = nn.Sequential(
-            # Block 1: Edge detection
-            nn.Conv2d(3, 32, kernel_size=3, padding=1),
-            nn.BatchNorm2d(32),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(32, 32, kernel_size=3, padding=1),
-            nn.BatchNorm2d(32),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(2),
-            
-            # Block 2: Pattern detection
-            nn.Conv2d(32, 64, kernel_size=3, padding=1),
-            nn.BatchNorm2d(64),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(64, 64, kernel_size=3, padding=1),
-            nn.BatchNorm2d(64),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(2),
-            
-            # Block 3: Complex features
-            nn.Conv2d(64, 128, kernel_size=3, padding=1),
-            nn.BatchNorm2d(128),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(128, 128, kernel_size=3, padding=1),
-            nn.BatchNorm2d(128),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(2),
-            
-            # Block 4: High-level features
-            nn.Conv2d(128, 256, kernel_size=3, padding=1),
-            nn.BatchNorm2d(256),
-            nn.ReLU(inplace=True),
-            nn.AdaptiveAvgPool2d(1)
+class DepthwiseSeparableConv(nn.Module):
+    """Depth-wise 3×3 conv → BN → ReLU6  ➔  Point-wise 1×1 conv → BN → ReLU6"""
+    def __init__(self, in_c, out_c, stride):
+        super().__init__()
+        self.dw = nn.Sequential(
+            nn.Conv2d(in_c, in_c, 3, stride, 1, groups=in_c, bias=False),
+            nn.BatchNorm2d(in_c),
+            nn.ReLU6(inplace=True)
         )
-        
-        self.classifier = nn.Sequential(
-            nn.Linear(256, 128),
-            nn.ReLU(inplace=True),
-            nn.Dropout(0.5),
-            nn.Linear(128, num_classes)
+        self.pw = nn.Sequential(
+            nn.Conv2d(in_c, out_c, 1, 1, 0, bias=False),
+            nn.BatchNorm2d(out_c),
+            nn.ReLU6(inplace=True)
         )
-        
-        self._initialize_weights()
-    
+
     def forward(self, x):
-        x = self.features(x)
-        x = x.view(x.size(0), -1)
-        x = self.classifier(x)
+        x = self.dw(x)
+        x = self.pw(x)
         return x
-    
-    def _initialize_weights(self):
+
+class MobileNetV1(nn.Module):
+    """Minimal MobileNet v1 (α = 1.0) — output logits for `num_classes`."""
+    def __init__(self, num_classes: int = 12):
+        super().__init__()
+        
+        c = lambda in_c, out_c, s: DepthwiseSeparableConv(in_c, out_c, s)
+
+        # stem
+        layers = [
+            nn.Conv2d(3, 32, 3, 2, 1, bias=False),  # 224→112
+            nn.BatchNorm2d(32),
+            nn.ReLU6(inplace=True),
+
+            # (filters, stride) sequence from Table 1
+            c(32,  64, 1),      # 112×112
+            c(64, 128, 2),      # 56×56
+            c(128,128, 1),
+            c(128,256, 2),      # 28×28
+            c(256,256, 1),
+            c(256,512, 2),      # 14×14
+        ]
+
+        # 5 × (512, stride 1)
+        for _ in range(5):
+            layers.append(c(512, 512, 1))
+
+        layers += [
+            c(512,1024, 2),     # 7×7
+            c(1024,1024,1)      # 7×7
+        ]
+
+        self.features = nn.Sequential(*layers)
+        self.pool     = nn.AdaptiveAvgPool2d(1)     # 1×1×1024
+        self.classifier = nn.Linear(1024, num_classes)
+
+        self._init_weights()
+
+    def _init_weights(self):
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode="fan_out", nonlinearity="relu")
             elif isinstance(m, nn.BatchNorm2d):
                 nn.init.constant_(m.weight, 1)
-                nn.init.constant_(m.bias, 0)
+                nn.init.constant_(m.bias,   0)
             elif isinstance(m, nn.Linear):
-                # MODIFICATION: Use Kaiming for Linear layers as well
-                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, nonlinearity="relu")
                 nn.init.constant_(m.bias, 0)
 
-# --- Data Augmentation -------------------------------------
+    def forward(self, x):
+        x = self.features(x)
+        x = self.pool(x).flatten(1)
+        return self.classifier(x)
+
 train_tfms = transforms.Compose([
     transforms.Resize((160, 160)),
     transforms.RandomCrop(128),
-    transforms.RandomHorizontalFlip(p=0.5),
-    transforms.RandomVerticalFlip(p=0.2),
+    transforms.RandomHorizontalFlip(0.5),
+    transforms.RandomVerticalFlip(0.2),
     transforms.RandomRotation(20),
-    transforms.RandomAffine(degrees=0, translate=(0.1, 0.1), scale=(0.9, 1.1)),
-    transforms.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.3, hue=0.1),
+    transforms.RandomAffine(0, translate=(.1,.1), scale=(.9,1.1)),
+    transforms.ColorJitter(.3,.3,.3,.1),
     transforms.ToTensor(),
-    transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+    transforms.Normalize([0.485,0.456,0.406], [0.229,0.224,0.225])
 ])
 
 val_tfms = transforms.Compose([
     transforms.Resize((128, 128)),
     transforms.ToTensor(),
-    transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+    transforms.Normalize([0.485,0.456,0.406], [0.229,0.224,0.225])
 ])
 
-# --- Load and Analyze Datasets ------------------------------
-print("Loading datasets...")
+print("Loading datasets…")
 train_ds = datasets.ImageFolder(DATA_DIR / "train", transform=train_tfms)
-val_ds = datasets.ImageFolder(DATA_DIR / "test", transform=val_tfms)
-
+val_ds   = datasets.ImageFolder(DATA_DIR / "test",  transform=val_tfms)
 num_classes = len(train_ds.classes)
-print(f"✓ Found {num_classes} classes: {train_ds.classes}")
+print(f"✓ {num_classes} classes  →  {train_ds.classes}")
 
-train_labels = [label for _, label in train_ds.samples]
-class_counts = sorted(Counter(train_labels).items())
-class_weights_values = [count for _, count in class_counts]
+# weighted sampler
+label_list     = [lbl for _, lbl in train_ds.samples]
+class_counts   = Counter(label_list)
+weights_per_cls = torch.tensor([1.0 / class_counts[i] for i in range(num_classes)],
+                               dtype=torch.float)
+sample_weights = torch.tensor([weights_per_cls[lbl] for lbl in label_list])
+sampler = WeightedRandomSampler(sample_weights, len(sample_weights), replacement=True)
 
-# Create weighted sampler for imbalanced classes
-class_weights = 1.0 / torch.tensor(class_weights_values, dtype=torch.float)
-sample_weights = [class_weights[label] for _, label in train_ds.samples]
-sampler = torch.utils.data.WeightedRandomSampler(
-    weights=sample_weights,
-    num_samples=len(sample_weights),
-    replacement=True
-)
-
-# Create data loaders with sampler
 train_dl = DataLoader(train_ds, batch_size=BATCH_SIZE, sampler=sampler, num_workers=0)
-val_dl = DataLoader(val_ds, batch_size=BATCH_SIZE, shuffle=False, num_workers=0)
+val_dl   = DataLoader(val_ds,   batch_size=BATCH_SIZE, shuffle=False, num_workers=0)
 
-# --- Main Execution Block -----------------------------------
-if __name__ == '__main__':
-    # Set seeds for reproducibility
-    torch.manual_seed(42)
-    np.random.seed(42)
-    random.seed(42)
-    
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"\n✓ Using device: {device}")
-    
-    model = ImprovedPestCNN(num_classes=num_classes).to(device)
-    print(f"✓ Total parameters: {sum(p.numel() for p in model.parameters()):,}")
-    
-    # MODIFICATION: Add Label Smoothing to the loss function
-    class_weights_tensor = class_weights.to(device)
-    criterion = nn.CrossEntropyLoss(weight=class_weights_tensor, label_smoothing=0.1)
-    
-    # MODIFICATION: Use a more stable Adam optimizer
-    optimizer = optim.Adam(model.parameters(), lr=LR, eps=1e-7)
-    
-    # MODIFICATION: Use a more patient learning rate scheduler
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode='max', factor=0.5, patience=8, min_lr=1e-6
-    )
-    
-    print(f"\nStarting training...")
-    print("="*60)
-    
-    best_acc = 0.0
-    history = {'train_acc': [], 'val_acc': [], 'train_loss': [], 'val_loss': []}
-    
-    for epoch in range(EPOCHS):
-        # Training phase
-        model.train()
-        running_loss = 0.0
-        correct = 0
-        total = 0
-        
-        pbar_desc = f"Epoch {epoch+1}/{EPOCHS}"
-        
-        for i, (inputs, labels) in enumerate(train_dl):
-            inputs, labels = inputs.to(device), labels.to(device)
-            
-            optimizer.zero_grad()
-            outputs = model(inputs)
-            loss = criterion(outputs, labels)
-            loss.backward()
-            
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-            optimizer.step()
-            
-            running_loss += loss.item()
-            _, predicted = outputs.max(1)
-            total += labels.size(0)
-            correct += predicted.eq(labels).sum().item()
-            
-            if i > 0 and i % 50 == 0:
-                print(f'\r{pbar_desc} - Batch {i}/{len(train_dl)} - Loss: {loss.item():.3f} - Acc: {100.*correct/total:.1f}%', end='')
-        
-        train_loss = running_loss / len(train_dl)
-        train_acc = 100. * correct / total
-        
-        # Validation phase with Test-Time Augmentation (TTA)
-        model.eval()
-        val_loss = 0.0
-        correct = 0
-        total = 0
-        
-        with torch.no_grad():
-            for inputs, labels in val_dl:
-                inputs, labels = inputs.to(device), labels.to(device)
-                
-                # Original image predictions
-                outputs_orig = model(inputs)
-                
-                # Horizontally flipped image predictions
-                flipped_inputs = transforms.functional.hflip(inputs)
-                outputs_flipped = model(flipped_inputs)
-                
-                # MODIFICATION: Average the predictions from original and flipped
-                outputs = (outputs_orig + outputs_flipped) / 2.0
-                
-                loss = criterion(outputs, labels)
-                
-                val_loss += loss.item()
-                _, predicted = outputs.max(1)
-                total += labels.size(0)
-                correct += predicted.eq(labels).sum().item()
-        
-        val_loss /= len(val_dl)
-        val_acc = 100. * correct / total
-        
-        history['train_acc'].append(train_acc)
-        history['val_acc'].append(val_acc)
-        history['train_loss'].append(train_loss)
-        history['val_loss'].append(val_loss)
-        
-        print(f'\n{pbar_desc} - Train Acc: {train_acc:.1f}% | Val Acc: {val_acc:.1f}% | Val Loss: {val_loss:.3f}')
-        
-        # Save best model
-        if val_acc > best_acc:
-            best_acc = val_acc
-            torch.save({
-                'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'epoch': epoch,
-                'best_acc': best_acc,
-                'classes': train_ds.classes,
-                'class_to_idx': train_ds.class_to_idx,
-                'history': history
-            }, MODEL_FILE)
-            print(f'✓ New best model saved: {best_acc:.1f}%')
-        
-        # Learning rate scheduling
-        scheduler.step(val_acc)
-        
-    print(f"\n{'='*60}")
-    print(f"✓ Training complete! Best accuracy: {best_acc:.1f}% saved to {MODEL_FILE}")
+def accuracy(out, y):         # top-1
+    return (out.argmax(1) == y).float().mean()
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+torch.manual_seed(42);  np.random.seed(42);  random.seed(42)
+print(f"✓ Device: {device}")
+
+model = MobileNetV1(num_classes).to(device)
+print(f"✓ Params: {sum(p.numel() for p in model.parameters()):,}")
+
+criterion = nn.CrossEntropyLoss(weight=weights_per_cls.to(device),
+                                label_smoothing=0.1)
+optimizer = optim.Adam(model.parameters(), lr=LR, eps=1e-7)
+scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode="max",
+                                                 factor=0.5, patience=8,
+                                                 min_lr=1e-6)
+
+best_acc = 0.0
+for epoch in range(1, EPOCHS+1):
+    # ───── train ─────
+    model.train()
+    tr_loss = tr_corr = 0
+    for i,(xb,yb) in enumerate(train_dl, start=1):
+        xb, yb = xb.to(device), yb.to(device)
+        optimizer.zero_grad()
+        out  = model(xb)
+        loss = criterion(out, yb)
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+        optimizer.step()
+
+        tr_loss += loss.item() * xb.size(0)
+        tr_corr += (out.argmax(1) == yb).sum().item()
+
+        if i % 50 == 0:
+            print(f"\rEpoch {epoch}/{EPOCHS}  batch {i}/{len(train_dl)}  "
+                  f"loss {loss.item():.3f}", end="")
+
+    train_acc  = 100 * tr_corr / len(train_ds)
+    train_loss = tr_loss / len(train_ds)
+
+    # ───── validate with TTA (orig + h-flip) ─────
+    model.eval()
+    v_loss = v_corr = 0
+    with torch.no_grad():
+        for xb,yb in val_dl:
+            xb,yb = xb.to(device), yb.to(device)
+            out_o = model(xb)
+            out_f = model(torch.flip(xb, dims=[3]))   # horizontal flip
+            out   = (out_o + out_f) / 2
+            v_loss += criterion(out, yb).item() * xb.size(0)
+            v_corr += (out.argmax(1) == yb).sum().item()
+
+    val_acc  = 100 * v_corr / len(val_ds)
+    val_loss = v_loss / len(val_ds)
+
+    print(f"\nEpoch {epoch:>3}: "
+          f"train acc {train_acc:5.1f}%  "
+          f"val acc {val_acc:5.1f}%  "
+          f"val loss {val_loss:.3f}")
+
+    # save best
+    if val_acc > best_acc:
+        best_acc = val_acc
+        torch.save({
+            "model_state_dict": model.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(),
+            "epoch": epoch,
+            "best_acc": best_acc,
+            "classes": train_ds.classes,
+            "class_to_idx": train_ds.class_to_idx
+        }, MODEL_FILE)
+        print(f"✓ Saved new best model  ({best_acc:.1f} %) →  {MODEL_FILE}")
+
+    scheduler.step(best_acc)
+
+print("\nTraining finished.")
+print(f"Best validation accuracy: {best_acc:.1f}%")
