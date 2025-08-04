@@ -2,12 +2,14 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Send, Bot, User, Loader, Paperclip, X } from 'lucide-react';
 import './ChatInterface.css';
 
-const ChatInterface = () => {
+const ChatInterface = ({ pestContext, analysisHistory }) => {
   const [messages, setMessages] = useState([
     {
       id: 1,
       type: 'bot',
-      content: 'Hello! I\'m your organic farm pest management assistant. I can help you identify pests, recommend organic treatments, and answer questions about sustainable farming practices. How can I assist you today?',
+      content: pestContext 
+        ? `Hello! I see you've detected ${pestContext.pestName} with ${(pestContext.confidence * 100).toFixed(1)}% confidence. I'm here to help you with organic treatment options and answer any questions about managing this pest. What would you like to know?`
+        : 'Hello! I\'m your organic farm pest management assistant. Upload an image of a pest for AI-powered identification, and I\'ll help you with organic treatments and sustainable farming practices. How can I assist you today?',
       timestamp: new Date()
     }
   ]);
@@ -27,6 +29,18 @@ const ChatInterface = () => {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  // Update welcome message when pest context changes
+  useEffect(() => {
+    if (pestContext && messages.length === 1) {
+      setMessages([{
+        id: 1,
+        type: 'bot',
+        content: `Hello! I see you've detected ${pestContext.pestName} with ${(pestContext.confidence * 100).toFixed(1)}% confidence. I'm here to help you with organic treatment options and answer any questions about managing this pest. What would you like to know?`,
+        timestamp: new Date()
+      }]);
+    }
+  }, [pestContext]);
 
   // Cleanup object URLs when component unmounts
   useEffect(() => {
@@ -164,6 +178,22 @@ const ChatInterface = () => {
       
       setMessages(prev => [...prev, errorMessage]);
       setIsLoading(false);
+    }
+  };
+
+  const generateMockResponse = (userInput) => {
+    const input = userInput.toLowerCase();
+    
+    if (input.includes('aphid')) {
+      return 'Aphids are common soft-bodied insects that feed on plant sap. For organic treatment, I recommend: 1) Neem oil spray (mix 2 tbsp per gallon of water), 2) Introduce beneficial insects like ladybugs, 3) Use insecticidal soap, 4) Plant companion crops like marigolds or catnip. Apply treatments in early morning or evening to avoid harming beneficial insects.';
+    } else if (input.includes('caterpillar') || input.includes('worm')) {
+      return 'For caterpillars, try these organic solutions: 1) Bacillus thuringiensis (Bt) spray - safe for beneficial insects, 2) Hand-picking for small infestations, 3) Row covers during egg-laying periods, 4) Encourage birds and beneficial wasps. Apply Bt in the evening when caterpillars are most active.';
+    } else if (input.includes('spider mite')) {
+      return 'Spider mites thrive in hot, dry conditions. Organic treatments include: 1) Increase humidity around plants, 2) Predatory mites like Phytoseiulus persimilis, 3) Neem oil or insecticidal soap spray, 4) Strong water spray to dislodge mites. Ensure good air circulation and avoid over-fertilizing with nitrogen.';
+    } else if (input.includes('prevention') || input.includes('prevent')) {
+      return 'Prevention is key in organic farming! Here are essential practices: 1) Crop rotation to break pest cycles, 2) Companion planting (basil with tomatoes, marigolds throughout), 3) Maintain soil health with compost, 4) Encourage beneficial insects with diverse plantings, 5) Regular monitoring and early intervention, 6) Proper spacing for air circulation.';
+    } else {
+      return 'I understand you\'re asking about pest management. Could you provide more specific details about the pest you\'re dealing with or the symptoms you\'re observing? For example, describe the insect\'s appearance, which plants are affected, or the type of damage you\'re seeing. This will help me provide more targeted organic treatment recommendations.';
     }
   };
 
