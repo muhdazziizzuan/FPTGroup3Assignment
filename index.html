@@ -24,6 +24,11 @@
             padding: 20px;
             margin-top: 20px;
         }
+        #results img {                /* 📌 make the preview fit nicely */
+            width: 100%;
+            height: auto;
+            margin-bottom: 15px;
+        }
         button {
             background: #4CAF50;
             color: white;
@@ -47,27 +52,32 @@
     <script>
         function analyze() {
             const file = document.getElementById('file').files[0];
+            if (!file) return;
+
+            /* 📌 show a local preview immediately */
+            const imgURL = URL.createObjectURL(file);
+            let html = `<img src="${imgURL}" alt="Uploaded image preview">`;
+            html += 'Analyzing…';
+            const resultsEl = document.getElementById('results');
+            resultsEl.innerHTML = html;
+            resultsEl.style.display = 'block';
+
+            /* send to backend */
             const formData = new FormData();
             formData.append('image', file);
             
-            document.getElementById('results').innerHTML = 'Analyzing...';
-            document.getElementById('results').style.display = 'block';
-            
-            fetch('/analyze', {
-                method: 'POST',
-                body: formData
-            })
-            .then(response => response.json())
+            fetch('/analyze', { method: 'POST', body: formData })
+            .then(r => r.json())
             .then(data => {
-                let html = `<h2>🔍 ${data.pest}</h2>`;
-                html += '<h3>Organic Treatments:</h3><ul>';
-                data.treatments.forEach(t => {
-                    html += `<li>${t}</li>`;
-                });
-                html += '</ul>';
-                html += `<p><em>${data.advice}</em></p>`;
-                document.getElementById('results').innerHTML = html;
-            });
+                let out  = `<img src="${imgURL}" alt="Uploaded image preview">`;  /* keep preview */
+                out += `<h2>🔍 ${data.pest}</h2>`;
+                out += '<h3>Organic Treatments:</h3><ul>';
+                data.treatments.forEach(t => out += `<li>${t}</li>`);
+                out += '</ul>';
+                if (data.advice) out += `<p><em>${data.advice}</em></p>`;
+                resultsEl.innerHTML = out;
+            })
+            .catch(err => { resultsEl.innerHTML = 'Error: ' + err; });
         }
     </script>
 </body>
