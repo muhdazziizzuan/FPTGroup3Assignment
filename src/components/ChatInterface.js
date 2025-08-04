@@ -112,45 +112,58 @@ const ChatInterface = () => {
     };
 
     setMessages(prev => [...prev, userMessage]);
+    const currentMessage = inputMessage;
+    const currentImages = [...attachedImages];
     setInputMessage('');
-    // Clear attached images state but keep URLs for the message
     setAttachedImages([]);
     setIsLoading(true);
     setShowQuickActions(false);
 
-    // Simulate API call to LLM backend
     try {
-      // In real implementation, this would call your backend API
-      setTimeout(() => {
-        const botResponse = generateMockResponse(inputMessage);
-        const botMessage = {
-          id: Date.now() + 1,
-          type: 'bot',
-          content: botResponse,
-          timestamp: new Date()
-        };
-        setMessages(prev => [...prev, botMessage]);
-        setIsLoading(false);
-      }, 1500);
+      // Prepare form data for API call
+      const formData = new FormData();
+      formData.append('message', currentMessage);
+      
+      // Add images to form data
+      currentImages.forEach((img, index) => {
+        formData.append('images', img.file);
+      });
+
+      // Call backend API
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      
+      const botMessage = {
+        id: Date.now() + 1,
+        type: 'bot',
+        content: data.response,
+        timestamp: new Date()
+      };
+      
+      setMessages(prev => [...prev, botMessage]);
+      setIsLoading(false);
+      
     } catch (error) {
       console.error('Error sending message:', error);
+      
+      // Show error message to user
+      const errorMessage = {
+        id: Date.now() + 1,
+        type: 'bot',
+        content: 'Sorry, I encountered an error while processing your request. Please make sure the backend service is running and try again.',
+        timestamp: new Date()
+      };
+      
+      setMessages(prev => [...prev, errorMessage]);
       setIsLoading(false);
-    }
-  };
-
-  const generateMockResponse = (userInput) => {
-    const input = userInput.toLowerCase();
-    
-    if (input.includes('aphid')) {
-      return 'Aphids are common soft-bodied insects that feed on plant sap. For organic treatment, I recommend: 1) Neem oil spray (mix 2 tbsp per gallon of water), 2) Introduce beneficial insects like ladybugs, 3) Use insecticidal soap, 4) Plant companion crops like marigolds or catnip. Apply treatments in early morning or evening to avoid harming beneficial insects.';
-    } else if (input.includes('caterpillar') || input.includes('worm')) {
-      return 'For caterpillars, try these organic solutions: 1) Bacillus thuringiensis (Bt) spray - safe for beneficial insects, 2) Hand-picking for small infestations, 3) Row covers during egg-laying periods, 4) Encourage birds and beneficial wasps. Apply Bt in the evening when caterpillars are most active.';
-    } else if (input.includes('spider mite')) {
-      return 'Spider mites thrive in hot, dry conditions. Organic treatments include: 1) Increase humidity around plants, 2) Predatory mites like Phytoseiulus persimilis, 3) Neem oil or insecticidal soap spray, 4) Strong water spray to dislodge mites. Ensure good air circulation and avoid over-fertilizing with nitrogen.';
-    } else if (input.includes('prevention') || input.includes('prevent')) {
-      return 'Prevention is key in organic farming! Here are essential practices: 1) Crop rotation to break pest cycles, 2) Companion planting (basil with tomatoes, marigolds throughout), 3) Maintain soil health with compost, 4) Encourage beneficial insects with diverse plantings, 5) Regular monitoring and early intervention, 6) Proper spacing for air circulation.';
-    } else {
-      return 'I understand you\'re asking about pest management. Could you provide more specific details about the pest you\'re dealing with or the symptoms you\'re observing? For example, describe the insect\'s appearance, which plants are affected, or the type of damage you\'re seeing. This will help me provide more targeted organic treatment recommendations.';
     }
   };
 
