@@ -55,6 +55,13 @@ backend/uploads/*
 # Dataset (large files)
 agricultural/
 
+# Docker files (not needed for this setup)
+Dockerfile
+docker-compose.yml
+docker-compose.*.yml
+nginx.conf
+.dockerignore
+
 # Python cache
 __pycache__/
 *.py[cod]
