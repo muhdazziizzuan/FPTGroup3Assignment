@@ -3,12 +3,14 @@ import './App.css';
 import ImageUpload from './components/ImageUpload';
 import ChatBot from './components/ChatBot';
 import PestResult from './components/PestResult';
+import ModelSelector from './components/ModelSelector';
 import { Leaf, Bug, MessageCircle, Camera } from 'lucide-react';
 
 function App() {
   const [uploadedImage, setUploadedImage] = useState(null);
   const [pestResult, setPestResult] = useState(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [selectedModel, setSelectedModel] = useState('pest_classifier2.pth');
   const chatBotRef = useRef(null);
 
   const handleImageUpload = async (file) => {
@@ -20,12 +22,19 @@ function App() {
       // Create FormData for image upload
       const formData = new FormData();
       formData.append('image', file);
+      formData.append('model', selectedModel);
 
       // Send image to backend for pest classification
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout
+      
       const response = await fetch('/api/classify-pest', {
         method: 'POST',
         body: formData,
+        signal: controller.signal
       });
+      
+      clearTimeout(timeoutId);
 
       if (!response.ok) {
         throw new Error('Failed to classify pest');
@@ -41,8 +50,14 @@ function App() {
       }
     } catch (error) {
       console.error('Error classifying pest:', error);
+      
+      let errorMessage = 'Failed to classify pest. Please try again.';
+      if (error.name === 'AbortError') {
+        errorMessage = 'Image analysis timed out. The service might be overloaded. Please try again.';
+      }
+      
       setPestResult({
-        error: 'Failed to classify pest. Please try again.',
+        error: errorMessage,
         pest_name: null,
         confidence: 0
       });
@@ -52,6 +67,14 @@ function App() {
   };
 
   const handleNewAnalysis = () => {
+    setUploadedImage(null);
+    setPestResult(null);
+    setIsAnalyzing(false);
+  };
+
+  const handleModelChange = (newModel) => {
+    setSelectedModel(newModel);
+    // Clear uploaded image and results when model changes
     setUploadedImage(null);
     setPestResult(null);
     setIsAnalyzing(false);
@@ -80,6 +103,12 @@ function App() {
               <Camera className="panel-icon" />
               <h2>Pest Analysis</h2>
             </div>
+            
+            <ModelSelector 
+              selectedModel={selectedModel}
+              onModelChange={handleModelChange}
+              isAnalyzing={isAnalyzing}
+            />
             
             <ImageUpload 
               onImageUpload={handleImageUpload}

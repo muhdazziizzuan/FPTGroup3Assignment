@@ -59,6 +59,10 @@ Feel free to ask me anything about pest management or upload an image for analys
     setIsLoading(true);
 
     try {
+      // Create an AbortController for timeout handling
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout
+      
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: {
@@ -67,8 +71,11 @@ Feel free to ask me anything about pest management or upload an image for analys
         body: JSON.stringify({
           message: message,
           model: 'llama3.2:1b'
-        })
+        }),
+        signal: controller.signal
       });
+      
+      clearTimeout(timeoutId);
 
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
@@ -89,7 +96,9 @@ Feel free to ask me anything about pest management or upload an image for analys
       
       let errorMessage = 'I\'m having trouble connecting to my knowledge base. ';
       
-      if (error.message.includes('503')) {
+      if (error.name === 'AbortError') {
+        errorMessage += 'The request timed out. The AI service might be overloaded. Please try again.';
+      } else if (error.message.includes('503')) {
         errorMessage += 'The AI service appears to be unavailable. Please make sure Ollama is running and try again.';
       } else if (error.message.includes('404')) {
         errorMessage += 'The AI model is not available. Please check if the required model is installed.';

@@ -6,50 +6,109 @@ Integrates with the trained CNN model for real pest identification
 
 import torch
 import torch.nn as nn
-import torchvision.transforms as transforms
+import torch.nn.functional as F
+from torchvision import transforms, models
 from PIL import Image
 import json
-import sys
+import argparse
 import os
+import sys
+
+# Define depthwise separable convolution block
+class DepthwiseSeparableConv(nn.Module):
+    def __init__(self, in_channels, out_channels, stride=1):
+        super(DepthwiseSeparableConv, self).__init__()
+        self.dw = nn.Sequential(
+            nn.Conv2d(in_channels, in_channels, 3, stride, 1, groups=in_channels, bias=False),
+            nn.BatchNorm2d(in_channels),
+            nn.ReLU6(inplace=True)
+        )
+        self.pw = nn.Sequential(
+            nn.Conv2d(in_channels, out_channels, 1, 1, 0, bias=False),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU6(inplace=True)
+        )
+    
+    def forward(self, x):
+        x = self.dw(x)
+        x = self.pw(x)
+        return x
 
 # Define the CNN model architecture (should match your trained model)
 class PestClassifier(nn.Module):
     def __init__(self, num_classes=12):
         super(PestClassifier, self).__init__()
+        # Custom MobileNetV2-like features to match the saved model structure
         self.features = nn.Sequential(
-            # First convolutional block
-            nn.Conv2d(3, 32, kernel_size=3, padding=1),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=2, stride=2),
+            # Initial conv layer
+            nn.Conv2d(3, 32, 3, 2, 1, bias=False),  # features.0
+            nn.BatchNorm2d(32),  # features.1
+            nn.ReLU6(inplace=True),
             
-            # Second convolutional block
-            nn.Conv2d(32, 64, kernel_size=3, padding=1),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=2, stride=2),
-            
-            # Third convolutional block
-            nn.Conv2d(64, 128, kernel_size=3, padding=1),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=2, stride=2),
-            
-            # Fourth convolutional block
-            nn.Conv2d(128, 256, kernel_size=3, padding=1),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=2, stride=2),
+            # Depthwise separable conv blocks (features.3 to features.15)
+            DepthwiseSeparableConv(32, 64, 1),    # features.3
+            DepthwiseSeparableConv(64, 128, 2),   # features.4
+            DepthwiseSeparableConv(128, 128, 1),  # features.5
+            DepthwiseSeparableConv(128, 256, 2),  # features.6
+            DepthwiseSeparableConv(256, 256, 1),  # features.7
+            DepthwiseSeparableConv(256, 512, 2),  # features.8
+            DepthwiseSeparableConv(512, 512, 1),  # features.9
+            DepthwiseSeparableConv(512, 512, 1),  # features.10
+            DepthwiseSeparableConv(512, 512, 1),  # features.11
+            DepthwiseSeparableConv(512, 512, 1),  # features.12
+            DepthwiseSeparableConv(512, 512, 1),  # features.13
+            DepthwiseSeparableConv(512, 1024, 2), # features.14
+            DepthwiseSeparableConv(1024, 1024, 1) # features.15
         )
         
-        self.classifier = nn.Sequential(
-            nn.Dropout(0.5),
-            nn.Linear(256 * 14 * 14, 512),  # Adjust based on input size
-            nn.ReLU(inplace=True),
-            nn.Dropout(0.5),
-            nn.Linear(512, num_classes)
-        )
-    
+        # Simple linear classifier to match the saved model
+        self.classifier = nn.Linear(1024, num_classes)
+        
     def forward(self, x):
         x = self.features(x)
-        x = x.view(x.size(0), -1)
+        # Global average pooling
+        x = nn.functional.adaptive_avg_pool2d(x, (1, 1))
+        x = torch.flatten(x, 1)
         x = self.classifier(x)
+        return x
+
+# ResNet50-based classifier for the ResNet50 model
+class ResNet50Classifier(nn.Module):
+    def __init__(self, num_classes=12):
+        super(ResNet50Classifier, self).__init__()
+        # Use ResNet50 architecture without pretrained weights
+        resnet = models.resnet50(weights=None)
+        
+        # Copy all layers except the final fc layer
+        self.conv1 = resnet.conv1
+        self.bn1 = resnet.bn1
+        self.relu = resnet.relu
+        self.maxpool = resnet.maxpool
+        self.layer1 = resnet.layer1
+        self.layer2 = resnet.layer2
+        self.layer3 = resnet.layer3
+        self.layer4 = resnet.layer4
+        self.avgpool = resnet.avgpool
+        
+        # Custom classifier to match the saved model structure
+        self.fc = nn.Sequential(
+            nn.Linear(2048, num_classes)
+        )
+        
+    def forward(self, x):
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.relu(x)
+        x = self.maxpool(x)
+        
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
+        
+        x = self.avgpool(x)
+        x = torch.flatten(x, 1)
+        x = self.fc(x)
         return x
 
 # Class names mapping
@@ -162,45 +221,98 @@ def load_model(model_path):
     """Load the trained model"""
     try:
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        model = PestClassifier(num_classes=len(CLASS_NAMES))
         
-        # Load the trained weights
+        # Load the checkpoint first to get class information
         if os.path.exists(model_path):
-            model.load_state_dict(torch.load(model_path, map_location=device))
+            checkpoint = torch.load(model_path, map_location=device)
+            
+            # Get class information from checkpoint if available
+            if isinstance(checkpoint, dict) and 'classes' in checkpoint:
+                classes = checkpoint['classes']
+                num_classes = len(classes)
+            else:
+                # Fallback to default classes
+                classes = CLASS_NAMES
+                num_classes = len(CLASS_NAMES)
+            
+            # Handle different checkpoint formats
+            if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
+                state_dict = checkpoint['model_state_dict']
+            else:
+                state_dict = checkpoint
+            
+            # Determine model architecture based on the state dict keys
+            state_keys = list(state_dict.keys())
+            
+            # Check if it's a ResNet50 model (has 'fc.fc.weight' or layer structure)
+            is_resnet = any('layer1.' in key or 'layer2.' in key or 'layer3.' in key or 'layer4.' in key for key in state_keys)
+            is_resnet = is_resnet or any('fc.fc.' in key for key in state_keys)
+            
+            if is_resnet:
+                model = ResNet50Classifier(num_classes=num_classes)
+                
+                # For ResNet50, we need to handle the fc layer structure
+                if any('fc.fc.' in key for key in state_keys):
+                    # The saved model has fc.fc structure, but our model has fc.0
+                    # We need to map the keys correctly
+                    new_state_dict = {}
+                    for key, value in state_dict.items():
+                        if key == 'fc.fc.weight':
+                            new_state_dict['fc.0.weight'] = value
+                        elif key == 'fc.fc.bias':
+                            new_state_dict['fc.0.bias'] = value
+                        else:
+                            new_state_dict[key] = value
+                    state_dict = new_state_dict
+            else:
+                model = PestClassifier(num_classes=num_classes)
+            
+            # Load the state dict
+            model.load_state_dict(state_dict, strict=True)
+                
             model.to(device)
             model.eval()
-            return model, device
+            return model, device, classes
         else:
             raise FileNotFoundError(f"Model file not found: {model_path}")
     except Exception as e:
         raise Exception(f"Error loading model: {str(e)}")
 
-def preprocess_image(image_path):
-    """Preprocess the image for model input"""
+def preprocess_image(image_input):
+    """Preprocess image for model input"""
     try:
         # Define transforms
         transform = transforms.Compose([
             transforms.Resize((224, 224)),
             transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], 
+            transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                std=[0.229, 0.224, 0.225])
         ])
         
-        # Load and preprocess image
-        image = Image.open(image_path).convert('RGB')
+        # Handle both file paths and PIL Image objects
+        if isinstance(image_input, str):
+            # It's a file path
+            image = Image.open(image_input).convert('RGB')
+        elif hasattr(image_input, 'read'):
+            # It's a file-like object
+            image = Image.open(image_input).convert('RGB')
+        else:
+            # It's already a PIL Image
+            image = image_input.convert('RGB')
+            
         image_tensor = transform(image).unsqueeze(0)
         return image_tensor
     except Exception as e:
         raise Exception(f"Error preprocessing image: {str(e)}")
 
-def classify_pest(image_path, model_path):
+def classify_pest(image_input, model_path):
     """Classify pest in the given image"""
     try:
         # Load model
-        model, device = load_model(model_path)
+        model, device, classes = load_model(model_path)
         
         # Preprocess image
-        image_tensor = preprocess_image(image_path)
+        image_tensor = preprocess_image(image_input)
         image_tensor = image_tensor.to(device)
         
         # Make prediction
@@ -209,7 +321,7 @@ def classify_pest(image_path, model_path):
             probabilities = torch.nn.functional.softmax(outputs, dim=1)
             confidence, predicted = torch.max(probabilities, 1)
             
-            predicted_class = CLASS_NAMES[predicted.item()]
+            predicted_class = classes[predicted.item()]
             confidence_score = confidence.item()
             
             # Get pest information

@@ -48,15 +48,18 @@ app.get('/ollama/status', async (req, res) => {
   }
 });
 
-// Pest Classification endpoint
+// Pest classification endpoint
 app.post('/api/classify-pest', upload.single('image'), async (req, res) => {
+  let responseHandled = false;
+  
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No image file provided' });
     }
 
     const imagePath = req.file.path;
-    const modelPath = path.join(__dirname, '..', 'trainedmodel', 'pest_classifier2.pth');
+    const selectedModel = req.body.model || 'pest_classifier2.pth';
+    const modelPath = path.join(__dirname, '..', 'trainedmodel', selectedModel);
     const pythonScript = path.join(__dirname, 'pest_classifier.py');
 
     // Check if model file exists
@@ -91,35 +94,48 @@ app.post('/api/classify-pest', upload.single('image'), async (req, res) => {
         fs.unlinkSync(imagePath);
       }
 
-      if (code === 0) {
-        try {
-          const classificationResult = JSON.parse(result);
-          res.json(classificationResult);
-        } catch (parseError) {
-          console.error('Error parsing Python script output:', parseError);
-          res.status(500).json({ 
-            error: 'Failed to parse classification result',
-            details: parseError.message 
-          });
+      // Only handle response if not already handled
+      if (!responseHandled) {
+        responseHandled = true;
+        
+        if (code === 0) {
+          try {
+            const classificationResult = JSON.parse(result);
+            res.json(classificationResult);
+          } catch (parseError) {
+            console.error('Error parsing Python script output:', parseError);
+            res.status(500).json({ 
+              error: 'Failed to parse classification result',
+              details: parseError.message 
+            });
+          }
+        } else {
+          console.error('Python script error:', error);
+          // Fallback to simulation if Python script fails
+          simulateClassification(req, res, true);
         }
-      } else {
-        console.error('Python script error:', error);
-        // Fallback to simulation if Python script fails
-        simulateClassification(req, res, true);
       }
     });
 
     // Set timeout for Python process
-    setTimeout(() => {
-      pythonProcess.kill();
-      if (fs.existsSync(imagePath)) {
-        fs.unlinkSync(imagePath);
+    const timeoutId = setTimeout(() => {
+      if (!responseHandled) {
+        responseHandled = true;
+        pythonProcess.kill();
+        if (fs.existsSync(imagePath)) {
+          fs.unlinkSync(imagePath);
+        }
+        res.status(408).json({ 
+          error: 'Classification timeout. Please try again.',
+          details: 'The model took too long to process the image' 
+        });
       }
-      res.status(408).json({ 
-        error: 'Classification timeout. Please try again.',
-        details: 'The model took too long to process the image' 
-      });
     }, 30000); // 30 second timeout
+
+    // Clear timeout if process completes normally
+    pythonProcess.on('close', () => {
+      clearTimeout(timeoutId);
+    });
 
   } catch (error) {
     console.error('Pest classification error:', error);
@@ -129,10 +145,12 @@ app.post('/api/classify-pest', upload.single('image'), async (req, res) => {
       fs.unlinkSync(req.file.path);
     }
 
-    res.status(500).json({ 
-      error: 'Failed to classify pest. Please try again.',
-      details: error.message 
-    });
+    if (!responseHandled) {
+      res.status(500).json({ 
+        error: 'Failed to classify pest. Please try again.',
+        details: error.message 
+      });
+    }
   }
 });
 
