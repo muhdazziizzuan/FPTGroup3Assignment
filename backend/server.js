@@ -8,7 +8,7 @@ const { spawn } = require('child_process');
 
 const app = express();
 const PORT = process.env.PORT || 8000;
-const OLLAMA_URL = process.env.OLLAMA_URL || 'http://ollama:11434';
+const OLLAMA_URL = process.env.OLLAMA_URL || 'http://localhost:11434';
 
 // Middleware
 app.use(cors());
