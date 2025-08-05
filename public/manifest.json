@@ -1,0 +1,26 @@
+{
+  "short_name": "AgriPest AI",
+  "name": "AgriPest AI - Intelligent Pest Identification",
+  "description": "AI-powered pest identification and organic treatment recommendations for sustainable farming",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192' fill='%234a7c59'%3E%3Cpath d='M96 16c8.8 0 16 7.2 16 16s-7.2 16-16 16-16-7.2-16-16 7.2-16 16-16zM168 72V56L120 8H40c-8.8 0-16 7.2-16 16v128c0 8.8 7.2 16 16 16h48v-16H40V24h64v48h64zm-40 52c0-11.2 8.8-20 20-20s20 8.8 20 20-8.8 20-20 20-20-8.8-20-20zm20 40c15.2 0 28-12.8 28-28s-12.8-28-28-28-28 12.8-28 28 12.8 28 28 28z'/%3E%3C/svg%3E",
+      "sizes": "192x192",
+      "type": "image/svg+xml"
+    },
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512' fill='%234a7c59'%3E%3Cpath d='M256 42.7c23.5 0 42.7 19.1 42.7 42.6s-19.1 42.7-42.7 42.7-42.7-19.1-42.7-42.7 19.1-42.6 42.7-42.6zM448 192v-42.7L320 21.3H106.7c-23.5 0-42.7 19.1-42.7 42.7v341.3c0 23.5 19.1 42.7 42.7 42.7H256v-42.7H106.7V64H277.3v128H448zm-106.7 138.7c0-29.9 23.5-53.3 53.3-53.3s53.3 23.5 53.3 53.3-23.5 53.3-53.3 53.3-53.3-23.5-53.3-53.3zm53.3 106.6c40.5 0 74.7-34.1 74.7-74.6s-34.1-74.7-74.7-74.7-74.7 34.1-74.7 74.7 34.1 74.6 74.7 74.6z'/%3E%3C/svg%3E",
+      "sizes": "512x512",
+      "type": "image/svg+xml"
+    }
+  ],
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#4a7c59",
+  "background_color": "#f8fdf8",
+  "orientation": "portrait-primary",
+  "categories": ["agriculture", "productivity", "utilities"],
+  "lang": "en",
+  "scope": "/",
+  "prefer_related_applications": false
+}

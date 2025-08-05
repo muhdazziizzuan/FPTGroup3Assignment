@@ -4,6 +4,7 @@ const multer = require('multer');
 const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
+const { spawn } = require('child_process');
 
 const app = express();
 const PORT = process.env.PORT || 8000;
@@ -47,7 +48,142 @@ app.get('/ollama/status', async (req, res) => {
   }
 });
 
-// Chat endpoint
+// Pest Classification endpoint
+app.post('/api/classify-pest', upload.single('image'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No image file provided' });
+    }
+
+    const imagePath = req.file.path;
+    const modelPath = path.join(__dirname, '..', 'trainedmodel', 'pest_classifier2.pth');
+    const pythonScript = path.join(__dirname, 'pest_classifier.py');
+
+    // Check if model file exists
+    if (!fs.existsSync(modelPath)) {
+      console.warn('Model file not found, using fallback simulation');
+      return simulateClassification(req, res);
+    }
+
+    // Check if Python script exists
+    if (!fs.existsSync(pythonScript)) {
+      console.warn('Python classifier script not found, using fallback simulation');
+      return simulateClassification(req, res);
+    }
+
+    // Run Python classification script
+    const pythonProcess = spawn('python', [pythonScript, imagePath, modelPath]);
+    
+    let result = '';
+    let error = '';
+
+    pythonProcess.stdout.on('data', (data) => {
+      result += data.toString();
+    });
+
+    pythonProcess.stderr.on('data', (data) => {
+      error += data.toString();
+    });
+
+    pythonProcess.on('close', (code) => {
+      // Clean up uploaded file
+      if (fs.existsSync(imagePath)) {
+        fs.unlinkSync(imagePath);
+      }
+
+      if (code === 0) {
+        try {
+          const classificationResult = JSON.parse(result);
+          res.json(classificationResult);
+        } catch (parseError) {
+          console.error('Error parsing Python script output:', parseError);
+          res.status(500).json({ 
+            error: 'Failed to parse classification result',
+            details: parseError.message 
+          });
+        }
+      } else {
+        console.error('Python script error:', error);
+        // Fallback to simulation if Python script fails
+        simulateClassification(req, res, true);
+      }
+    });
+
+    // Set timeout for Python process
+    setTimeout(() => {
+      pythonProcess.kill();
+      if (fs.existsSync(imagePath)) {
+        fs.unlinkSync(imagePath);
+      }
+      res.status(408).json({ 
+        error: 'Classification timeout. Please try again.',
+        details: 'The model took too long to process the image' 
+      });
+    }, 30000); // 30 second timeout
+
+  } catch (error) {
+    console.error('Pest classification error:', error);
+    
+    // Clean up uploaded file on error
+    if (req.file && fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path);
+    }
+
+    res.status(500).json({ 
+      error: 'Failed to classify pest. Please try again.',
+      details: error.message 
+    });
+  }
+});
+
+// Fallback simulation function
+function simulateClassification(req, res, isFailover = false) {
+  const simulatedResults = [
+    { pest_name: 'ants', confidence: 0.92, description: 'Common garden ants that can damage plant roots and farm aphids.' },
+    { pest_name: 'bees', confidence: 0.88, description: 'Beneficial pollinators, generally not considered pests.' },
+    { pest_name: 'beetle', confidence: 0.85, description: 'Various beetle species that can damage leaves and crops.' },
+    { pest_name: 'catterpillar', confidence: 0.90, description: 'Larval stage of moths and butterflies, can cause significant leaf damage.' },
+    { pest_name: 'earthworms', confidence: 0.95, description: 'Beneficial soil organisms that improve soil health.' },
+    { pest_name: 'earwig', confidence: 0.87, description: 'Nocturnal insects that can damage seedlings and soft plant tissues.' },
+    { pest_name: 'grasshopper', confidence: 0.89, description: 'Jumping insects that can cause extensive damage to crops and gardens.' },
+    { pest_name: 'moth', confidence: 0.86, description: 'Adult stage of various species, some larvae can be crop pests.' },
+    { pest_name: 'slug', confidence: 0.91, description: 'Soft-bodied mollusks that damage leaves and seedlings.' },
+    { pest_name: 'snail', confidence: 0.88, description: 'Shelled mollusks that feed on plant material.' },
+    { pest_name: 'wasp', confidence: 0.84, description: 'Beneficial predators that control other pest insects.' },
+    { pest_name: 'weevil', confidence: 0.93, description: 'Beetle family that includes many serious crop pests.' }
+  ];
+
+  const randomResult = simulatedResults[Math.floor(Math.random() * simulatedResults.length)];
+  
+  const treatmentSuggestions = {
+    'ants': ['Use diatomaceous earth around affected areas', 'Apply cinnamon or coffee grounds as natural deterrents', 'Remove food sources and moisture'],
+    'beetle': ['Hand-pick beetles in early morning', 'Use row covers during peak season', 'Apply neem oil spray'],
+    'catterpillar': ['Inspect plants regularly for eggs', 'Use Bacillus thuringiensis (Bt) spray', 'Encourage beneficial predators'],
+    'earwig': ['Remove hiding places like debris', 'Use beer traps', 'Apply diatomaceous earth'],
+    'grasshopper': ['Use row covers for protection', 'Apply kaolin clay spray', 'Encourage natural predators'],
+    'moth': ['Use pheromone traps', 'Apply beneficial nematodes', 'Remove overwintering sites'],
+    'slug': ['Use copper barriers', 'Apply iron phosphate baits', 'Remove hiding places'],
+    'snail': ['Hand-pick during evening hours', 'Use beer traps', 'Apply crushed eggshells around plants'],
+    'weevil': ['Use beneficial nematodes', 'Apply diatomaceous earth', 'Remove plant debris']
+  };
+
+  const result = {
+    pest_name: randomResult.pest_name,
+    confidence: randomResult.confidence,
+    description: randomResult.description,
+    treatment_suggestions: treatmentSuggestions[randomResult.pest_name] || ['Consult with agricultural extension services', 'Monitor pest population', 'Consider integrated pest management approaches'],
+    simulation_mode: true,
+    note: isFailover ? 'Using simulation due to model unavailability' : 'Using simulation mode for demonstration'
+  };
+
+  // Clean up uploaded file
+  if (req.file && fs.existsSync(req.file.path)) {
+    fs.unlinkSync(req.file.path);
+  }
+
+  res.json(result);
+}
+
 // Chat endpoint
 app.post('/api/chat', upload.array('images', 5), async (req, res) => {
   try {
@@ -196,6 +332,7 @@ app.get('/', (req, res) => {
     version: '1.0.0',
     endpoints: {
       health: '/health',
+      classify_pest: '/api/classify-pest',
       chat: '/api/chat',
       models: '/api/models',
       ollama_status: '/ollama/status'

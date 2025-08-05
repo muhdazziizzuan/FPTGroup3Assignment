@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="icon" href="%PUBLIC_URL%/favicon.ico" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#4a7c59" />
+    <meta name="description" content="AgriPest AI - Intelligent Pest Identification & Management System for Organic Farming" />
+    <meta name="keywords" content="pest identification, organic farming, AI, agriculture, pest management, sustainable farming" />
+    <meta name="author" content="AgriPest AI Team" />
+    
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="AgriPest AI - Intelligent Pest Identification" />
+    <meta property="og:description" content="Upload pest images for instant AI-powered identification and get organic treatment recommendations." />
+    <meta property="og:image" content="%PUBLIC_URL%/og-image.png" />
+    
+    <!-- Twitter -->
+    <meta property="twitter:card" content="summary_large_image" />
+    <meta property="twitter:title" content="AgriPest AI - Intelligent Pest Identification" />
+    <meta property="twitter:description" content="Upload pest images for instant AI-powered identification and get organic treatment recommendations." />
+    
+    <link rel="apple-touch-icon" href="%PUBLIC_URL%/logo192.png" />
+    <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
+    
+    <!-- Preconnect to improve performance -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    
+    <!-- Custom favicon -->
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%234a7c59'%3E%3Cpath d='M12 2C13.1 2 14 2.9 14 4C14 5.1 13.1 6 12 6C10.9 6 10 5.1 10 4C10 2.9 10.9 2 12 2ZM21 9V7L15 1H5C3.89 1 3 1.89 3 3V19C3 20.1 3.9 21 5 21H11V19H5V3H13V9H21ZM14 15.5C14 14.1 15.1 13 16.5 13S19 14.1 19 15.5 17.9 18 16.5 18 14 16.9 14 15.5ZM16.5 20C18.4 20 20 18.4 20 16.5S18.4 13 16.5 13 13 14.6 13 16.5 14.6 20 16.5 20Z'/%3E%3C/svg%3E">
+    
+    <title>AgriPest AI - Intelligent Pest Identification</title>
+    
+    <style>
+      /* Loading screen styles */
+      .loading-screen {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(135deg, #e8f5e8 0%, #f0f8f0 100%);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        z-index: 9999;
+        transition: opacity 0.5s ease;
+      }
+      
+      .loading-logo {
+        width: 80px;
+        height: 80px;
+        margin-bottom: 20px;
+        animation: pulse 2s ease-in-out infinite;
+      }
+      
+      .loading-text {
+        color: #4a7c59;
+        font-size: 1.2rem;
+        font-weight: 600;
+        margin-bottom: 10px;
+      }
+      
+      .loading-subtext {
+        color: #6b8e6b;
+        font-size: 0.9rem;
+      }
+      
+      .loading-spinner {
+        width: 40px;
+        height: 40px;
+        border: 4px solid #e8f5e8;
+        border-top: 4px solid #4a7c59;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+        margin-top: 20px;
+      }
+      
+      @keyframes pulse {
+        0%, 100% { transform: scale(1); }
+        50% { transform: scale(1.1); }
+      }
+      
+      @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
+      
+      /* Hide loading screen when app loads */
+      .app-loaded .loading-screen {
+        opacity: 0;
+        pointer-events: none;
+      }
+    </style>
+  </head>
+  <body>
+    <noscript>You need to enable JavaScript to run this app.</noscript>
+    
+    <!-- Loading Screen -->
+    <div class="loading-screen" id="loading-screen">
+      <svg class="loading-logo" viewBox="0 0 24 24" fill="#4a7c59">
+        <path d="M12 2C13.1 2 14 2.9 14 4C14 5.1 13.1 6 12 6C10.9 6 10 5.1 10 4C10 2.9 10.9 2 12 2ZM21 9V7L15 1H5C3.89 1 3 1.89 3 3V19C3 20.1 3.9 21 5 21H11V19H5V3H13V9H21ZM14 15.5C14 14.1 15.1 13 16.5 13S19 14.1 19 15.5 17.9 18 16.5 18 14 16.9 14 15.5ZM16.5 20C18.4 20 20 18.4 20 16.5S18.4 13 16.5 13 13 14.6 13 16.5 14.6 20 16.5 20Z"/>
+      </svg>
+      <div class="loading-text">AgriPest AI</div>
+      <div class="loading-subtext">Loading intelligent pest identification...</div>
+      <div class="loading-spinner"></div>
+    </div>
+    
+    <div id="root"></div>
+    
+    <script>
+      // Hide loading screen when React app loads
+      window.addEventListener('load', function() {
+        setTimeout(function() {
+          document.body.classList.add('app-loaded');
+          setTimeout(function() {
+            const loadingScreen = document.getElementById('loading-screen');
+            if (loadingScreen) {
+              loadingScreen.remove();
+            }
+          }, 500);
+        }, 1000);
+      });
+    </script>
+  </body>
+</html>
