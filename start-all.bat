@@ -13,10 +13,10 @@ if %ERRORLEVEL% NEQ 0 (
 
 REM Check if required model exists
 echo Checking for required Ollama model...
-ollama list | findstr "llama3.2:1b" >nul
+ollama list | findstr "phi4-mini" >nul
 if %ERRORLEVEL% NEQ 0 (
-    echo Model llama3.2:1b not found. Pulling model...
-    ollama pull llama3.2:1b
+    echo Model phi4-mini not found. Pulling model...
+    ollama pull phi4-mini
     if %ERRORLEVEL% NEQ 0 (
         echo ERROR: Failed to pull model
         pause

@@ -120,7 +120,7 @@ const ImageUpload = ({ onImageUpload, uploadedImage, isAnalyzing }) => {
               style={{ marginTop: '1rem' }}
             >
               <RotateCcw size={16} />
-              Upload New Image
+              Analyze New Image
             </button>
           )}
         </div>

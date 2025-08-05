@@ -31,10 +31,10 @@ if (-not (Test-Command "npm")) {
 
 # Check if required model exists
 Write-Host "Checking for required Ollama model..." -ForegroundColor Cyan
-$modelCheck = & $ollamaPath list | Select-String "llama3.2:1b"
+$modelCheck = & $ollamaPath list | Select-String "phi4-mini"
 if (-not $modelCheck) {
-    Write-Host "Model llama3.2:1b not found. Pulling model..." -ForegroundColor Yellow
-    & $ollamaPath pull llama3.2:1b
+    Write-Host "Model phi4-mini not found. Pulling model..." -ForegroundColor Yellow
+    & $ollamaPath pull phi4-mini
     if ($LASTEXITCODE -ne 0) {
         Write-Host "ERROR: Failed to pull model" -ForegroundColor Red
         Read-Host "Press Enter to exit"

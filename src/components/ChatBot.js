@@ -21,11 +21,15 @@ Feel free to ask me anything about pest management or upload an image for analys
   ]);
   const [inputMessage, setInputMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [currentPestContext, setCurrentPestContext] = useState(null);
   const messagesEndRef = useRef(null);
+  const messagesContainerRef = useRef(null);
   const textareaRef = useRef(null);
 
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (messagesContainerRef.current) {
+      messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+    }
   };
 
   useEffect(() => {
@@ -43,6 +47,13 @@ Feel free to ask me anything about pest management or upload an image for analys
   useEffect(() => {
     adjustTextareaHeight();
   }, [inputMessage]);
+
+  // Update pest context when pestResult changes
+  useEffect(() => {
+    if (pestResult && pestResult.pest_name && !pestResult.error) {
+      setCurrentPestContext(pestResult.pest_name);
+    }
+  }, [pestResult]);
 
   const sendMessage = async (message = inputMessage) => {
     if (!message.trim() || isLoading) return;
@@ -63,14 +74,20 @@ Feel free to ask me anything about pest management or upload an image for analys
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout
       
+      // Include pest context in the message if available
+      let contextualMessage = message;
+      if (currentPestContext && !message.toLowerCase().includes(currentPestContext.toLowerCase())) {
+        contextualMessage = `Regarding ${currentPestContext}: ${message}`;
+      }
+      
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          message: message,
-          model: 'llama3.2:1b'
+          message: contextualMessage,
+          model: 'phi4-mini'
         }),
         signal: controller.signal
       });
@@ -134,6 +151,11 @@ Feel free to ask me anything about pest management or upload an image for analys
   // Expose sendMessage method to parent component
   useImperativeHandle(ref, () => ({
     sendMessage: (message) => {
+      // Extract pest name from contextual messages sent by parent
+      const pestMatch = message.match(/I've identified a ([^\s]+)/i);
+      if (pestMatch) {
+        setCurrentPestContext(pestMatch[1]);
+      }
       sendMessage(message);
     }
   }));
@@ -144,7 +166,7 @@ Feel free to ask me anything about pest management or upload an image for analys
 
   return (
     <div className="chatbot-container">
-      <div className="chat-messages">
+      <div className="chat-messages" ref={messagesContainerRef}>
         {messages.map((message) => (
           <div key={message.id} className={`message ${message.type}`}>
             <div className="message-avatar">

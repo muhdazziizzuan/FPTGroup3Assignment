@@ -320,6 +320,7 @@ body {
   overflow-y: auto;
   background: #fafcfa;
   max-height: 500px;
+  scroll-behavior: smooth;
 }
 
 .message {
