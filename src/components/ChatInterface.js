@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, Bot, User, Loader, Paperclip, X } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
 import './ChatInterface.css';
 
 const ChatInterface = ({ pestContext, analysisHistory }) => {
@@ -234,7 +235,17 @@ const ChatInterface = ({ pestContext, analysisHistory }) => {
                   ))}
                 </div>
               )}
+              // In the message rendering section, replace:
               <div className="message-text">{message.content}</div>
+              
+              // With:
+              <div className="message-text">
+                {message.type === 'bot' ? (
+                  <ReactMarkdown>{message.content}</ReactMarkdown>
+                ) : (
+                  message.content
+                )}
+              </div>
               <div className="message-time">{formatTime(message.timestamp)}</div>
             </div>
           </div>
