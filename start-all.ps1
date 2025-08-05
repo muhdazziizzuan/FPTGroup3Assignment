@@ -9,9 +9,13 @@ function Test-Command($cmdname) {
     return [bool](Get-Command -Name $cmdname -ErrorAction SilentlyContinue)
 }
 
+# Set Ollama path
+$ollamaPath = "$env:LOCALAPPDATA\Programs\Ollama\ollama.exe"
+
 # Check if Ollama is installed
-if (-not (Test-Command "ollama")) {
-    Write-Host "ERROR: Ollama is not installed or not in PATH" -ForegroundColor Red
+if (-not (Test-Path $ollamaPath)) {
+    Write-Host "ERROR: Ollama is not installed at expected location" -ForegroundColor Red
+    Write-Host "Expected location: $ollamaPath" -ForegroundColor Yellow
     Write-Host "Please install Ollama from https://ollama.ai/" -ForegroundColor Yellow
     Read-Host "Press Enter to exit"
     exit 1
@@ -27,10 +31,10 @@ if (-not (Test-Command "npm")) {
 
 # Check if required model exists
 Write-Host "Checking for required Ollama model..." -ForegroundColor Cyan
-$modelCheck = ollama list | Select-String "llama3.2:1b"
+$modelCheck = & $ollamaPath list | Select-String "llama3.2:1b"
 if (-not $modelCheck) {
     Write-Host "Model llama3.2:1b not found. Pulling model..." -ForegroundColor Yellow
-    ollama pull llama3.2:1b
+    & $ollamaPath pull llama3.2:1b
     if ($LASTEXITCODE -ne 0) {
         Write-Host "ERROR: Failed to pull model" -ForegroundColor Red
         Read-Host "Press Enter to exit"
@@ -47,7 +51,7 @@ $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 # Start Ollama service in new PowerShell window
 Write-Host "[1/3] Starting Ollama service..." -ForegroundColor Cyan
-Start-Process powershell -ArgumentList "-NoExit", "-Command", "Write-Host 'Ollama Service Running' -ForegroundColor Green; ollama serve" -WindowStyle Normal
+Start-Process powershell -ArgumentList "-NoExit", "-Command", "Write-Host 'Ollama Service Running' -ForegroundColor Green; & '$ollamaPath' serve" -WindowStyle Normal
 
 # Wait for Ollama to start
 Write-Host "Waiting for Ollama to start..." -ForegroundColor Yellow
