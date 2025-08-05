@@ -2,10 +2,13 @@
 echo Starting AgriPest AI Application...
 echo.
 
+REM Set Ollama path
+set "OLLAMA_PATH=%LOCALAPPDATA%\Programs\Ollama\ollama.exe"
+
 REM Check if Ollama is installed
-where ollama >nul 2>nul
-if %ERRORLEVEL% NEQ 0 (
-    echo ERROR: Ollama is not installed or not in PATH
+if not exist "%OLLAMA_PATH%" (
+    echo ERROR: Ollama is not installed at expected location
+    echo Expected location: %OLLAMA_PATH%
     echo Please install Ollama from https://ollama.ai/
     pause
     exit /b 1
@@ -13,10 +16,10 @@ if %ERRORLEVEL% NEQ 0 (
 
 REM Check if required model exists
 echo Checking for required Ollama model...
-ollama list | findstr "phi4-mini" >nul
+"%OLLAMA_PATH%" list | findstr "phi4-mini" >nul
 if %ERRORLEVEL% NEQ 0 (
     echo Model phi4-mini not found. Pulling model...
-    ollama pull phi4-mini
+    "%OLLAMA_PATH%" pull phi4-mini
     if %ERRORLEVEL% NEQ 0 (
         echo ERROR: Failed to pull model
         pause
@@ -27,23 +30,28 @@ if %ERRORLEVEL% NEQ 0 (
 echo Starting services...
 echo.
 
-REM Start Ollama service in new window
+REM Start Ollama service in background
 echo [1/3] Starting Ollama service...
-start "Ollama Service" cmd /k "echo Ollama Service Running && ollama serve"
+start /b "%OLLAMA_PATH%" serve
 
 REM Wait a moment for Ollama to start
 timeout /t 3 /nobreak >nul
+echo Waiting for Ollama to start...
 
-REM Start backend server in new window
+REM Start backend server in background
 echo [2/3] Starting Backend Server...
-start "Backend Server" cmd /k "cd /d %~dp0backend && echo Backend Server Starting... && npm start"
+cd /d "%~dp0backend"
+start /b npm start
+cd /d "%~dp0"
 
 REM Wait a moment for backend to start
 timeout /t 3 /nobreak >nul
+echo Waiting for backend to start...
 
-REM Start frontend server in new window
+REM Start frontend server in current terminal
 echo [3/3] Starting Frontend Server...
-start "Frontend Server" cmd /k "cd /d %~dp0 && echo Frontend Server Starting... && npm start"
+echo Frontend Server Starting...
+npm start
 
 echo.
 echo ========================================

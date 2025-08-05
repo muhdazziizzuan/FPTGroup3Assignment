@@ -13,6 +13,15 @@ import json
 import argparse
 import os
 import sys
+import onnxruntime as ort
+import numpy as np
+try:
+    import tensorflow as tf
+    from tensorflow import keras
+    TF_AVAILABLE = True
+except ImportError:
+    TF_AVAILABLE = False
+    print("Warning: TensorFlow not available. .h5 models will not be supported.")
 
 # Define depthwise separable convolution block
 class DepthwiseSeparableConv(nn.Module):
@@ -217,9 +226,66 @@ PEST_INFO = {
     }
 }
 
-def load_model(model_path):
-    """Load the trained model"""
+def load_onnx_model(model_path):
+    """Load ONNX model"""
     try:
+        # Check if CUDA is available for ONNX Runtime
+        providers = ['CPUExecutionProvider']
+        if torch.cuda.is_available():
+            providers.insert(0, 'CUDAExecutionProvider')
+        
+        # Create ONNX Runtime session
+        session = ort.InferenceSession(model_path, providers=providers)
+        
+        # Get input and output details
+        input_details = session.get_inputs()[0]
+        output_details = session.get_outputs()[0]
+        
+        return session, input_details, output_details, CLASS_NAMES
+    except Exception as e:
+        raise Exception(f"Error loading ONNX model: {str(e)}")
+
+def load_h5_model(model_path):
+    """Load TensorFlow/Keras .h5 model for inference"""
+    if not TF_AVAILABLE:
+        raise Exception("TensorFlow is not available. Please install tensorflow to use .h5 models.")
+    
+    try:
+        # Load the Keras model
+        model = keras.models.load_model(model_path)
+        
+        # Get model input and output information
+        input_shape = model.input_shape
+        output_shape = model.output_shape
+        
+        # Print to stderr to avoid interfering with JSON output
+        print(f"Keras/TensorFlow Model loaded successfully!", file=sys.stderr)
+        print(f"Input shape: {input_shape}", file=sys.stderr)
+        print(f"Output shape: {output_shape}", file=sys.stderr)
+        print(f"Classes: {len(CLASS_NAMES)} - {CLASS_NAMES}", file=sys.stderr)
+        
+        return {
+            'model': model,
+            'input_shape': input_shape,
+            'output_shape': output_shape,
+            'classes': CLASS_NAMES,
+            'type': 'h5'
+        }
+    except Exception as e:
+        raise Exception(f"Error loading H5 model: {str(e)}")
+
+def load_model(model_path):
+    """Load the trained model (supports PyTorch .pth, ONNX .onnx, and TensorFlow/Keras .h5 files)"""
+    try:
+        # Check if it's an ONNX model
+        if model_path.lower().endswith('.onnx'):
+            return load_onnx_model(model_path)
+        
+        # Check if it's a Keras/TensorFlow .h5 model
+        if model_path.lower().endswith('.h5'):
+            return load_h5_model(model_path)
+        
+        # Original PyTorch model loading
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         
         # Load the checkpoint first to get class information
@@ -279,7 +345,7 @@ def load_model(model_path):
         raise Exception(f"Error loading model: {str(e)}")
 
 def preprocess_image(image_input):
-    """Preprocess image for model input"""
+    """Preprocess image for PyTorch model input"""
     try:
         # Define transforms
         transform = transforms.Compose([
@@ -305,40 +371,154 @@ def preprocess_image(image_input):
     except Exception as e:
         raise Exception(f"Error preprocessing image: {str(e)}")
 
+def preprocess_image_onnx(image_input):
+    """Preprocess image for ONNX model input"""
+    try:
+        # Handle both file paths and PIL Image objects
+        if isinstance(image_input, str):
+            # It's a file path
+            image = Image.open(image_input).convert('RGB')
+        elif hasattr(image_input, 'read'):
+            # It's a file-like object
+            image = Image.open(image_input).convert('RGB')
+        else:
+            # It's already a PIL Image
+            image = image_input.convert('RGB')
+        
+        # Resize image
+        image = image.resize((224, 224))
+        
+        # Convert to numpy array and normalize
+        image_array = np.array(image).astype(np.float32) / 255.0
+        
+        # Normalize with ImageNet stats
+        mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+        std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+        image_array = (image_array - mean) / std
+        
+        # Change from HWC to CHW format and add batch dimension
+        image_array = np.transpose(image_array, (2, 0, 1))
+        image_array = np.expand_dims(image_array, axis=0)
+        
+        # Ensure final array is float32
+        image_array = image_array.astype(np.float32)
+        
+        return image_array
+    except Exception as e:
+        raise Exception(f"Error preprocessing image for ONNX: {str(e)}")
+
+def preprocess_image_h5(image_input, input_shape=None):
+    """Preprocess image for TensorFlow/Keras .h5 model input"""
+    if not TF_AVAILABLE:
+        raise Exception("TensorFlow is not available. Please install tensorflow to use .h5 models.")
+    
+    try:
+        # Handle both file paths and PIL Image objects
+        if isinstance(image_input, str):
+            # It's a file path
+            image = Image.open(image_input).convert('RGB')
+        elif hasattr(image_input, 'read'):
+            # It's a file-like object
+            image = Image.open(image_input).convert('RGB')
+        else:
+            # It's already a PIL Image
+            image = image_input.convert('RGB')
+        
+        # Determine target size from input_shape or default to 128x128
+        if input_shape and len(input_shape) >= 3:
+            target_size = (input_shape[1], input_shape[2])  # (height, width)
+        else:
+            target_size = (128, 128)  # Default to 128x128 for this specific model
+        
+        # Resize image
+        image = image.resize(target_size)
+        
+        # Convert to numpy array and normalize to [0, 1] - simple normalization for this model
+        image_array = np.array(image).astype(np.float32) / 255.0
+        
+        # Add batch dimension (TensorFlow expects NHWC format)
+        image_array = np.expand_dims(image_array, axis=0)
+        
+        return image_array
+    except Exception as e:
+        raise Exception(f"Error preprocessing image for H5: {str(e)}")
+
 def classify_pest(image_input, model_path):
     """Classify pest in the given image"""
     try:
-        # Load model
-        model, device, classes = load_model(model_path)
+        # Check if it's an ONNX model
+        if model_path.lower().endswith('.onnx'):
+            # Load ONNX model
+            model_info = load_model(model_path)
+            session = model_info['session']
+            input_name = model_info['input_name']
+            classes = model_info['classes']
+            
+            # Preprocess image for ONNX
+            image_array = preprocess_image_onnx(image_input)
+            
+            # Make prediction with ONNX
+            outputs = session.run(None, {input_name: image_array})
+            
+            # Process outputs
+            logits = outputs[0]
+            probabilities = np.exp(logits) / np.sum(np.exp(logits), axis=1, keepdims=True)  # softmax
+            predicted_idx = np.argmax(probabilities, axis=1)[0]
+            confidence_score = float(probabilities[0][predicted_idx])
+            
+            predicted_class = classes[predicted_idx]
         
-        # Preprocess image
-        image_tensor = preprocess_image(image_input)
-        image_tensor = image_tensor.to(device)
+        # Check if it's a Keras/TensorFlow .h5 model
+        elif model_path.lower().endswith('.h5'):
+            # Load H5 model
+            model_info = load_model(model_path)
+            model = model_info['model']
+            classes = model_info['classes']
+            input_shape = model_info['input_shape']
+            
+            # Preprocess image for H5 with correct input shape
+            image_array = preprocess_image_h5(image_input, input_shape)
+            
+            # Make prediction with TensorFlow/Keras
+            predictions = model.predict(image_array, verbose=0)
+            probabilities = tf.nn.softmax(predictions).numpy()
+            predicted_idx = np.argmax(probabilities, axis=1)[0]
+            confidence_score = float(probabilities[0][predicted_idx])
+            
+            predicted_class = classes[predicted_idx]
         
-        # Make prediction
-        with torch.no_grad():
-            outputs = model(image_tensor)
-            probabilities = torch.nn.functional.softmax(outputs, dim=1)
-            confidence, predicted = torch.max(probabilities, 1)
+        else:
+            # Load PyTorch model
+            model, device, classes = load_model(model_path)
             
-            predicted_class = classes[predicted.item()]
-            confidence_score = confidence.item()
+            # Preprocess image for PyTorch
+            image_tensor = preprocess_image(image_input)
+            image_tensor = image_tensor.to(device)
             
-            # Get pest information
-            pest_info = PEST_INFO.get(predicted_class, {
-                'description': 'Information not available for this pest.',
-                'treatments': ['Consult with agricultural extension services']
-            })
-            
-            result = {
-                'pest_name': predicted_class,
-                'confidence': confidence_score,
-                'description': pest_info['description'],
-                'treatment_suggestions': pest_info['treatments']
-            }
-            
-            return result
-            
+            # Make prediction with PyTorch
+            with torch.no_grad():
+                outputs = model(image_tensor)
+                probabilities = torch.nn.functional.softmax(outputs, dim=1)
+                confidence, predicted = torch.max(probabilities, 1)
+                
+                predicted_class = classes[predicted.item()]
+                confidence_score = confidence.item()
+        
+        # Get pest information
+        pest_info = PEST_INFO.get(predicted_class, {
+            'description': 'Information not available for this pest.',
+            'treatments': ['Consult with agricultural extension services']
+        })
+        
+        result = {
+            'pest_name': predicted_class,
+            'confidence': confidence_score,
+            'description': pest_info['description'],
+            'treatment_suggestions': pest_info['treatments']
+        }
+        
+        return result
+        
     except Exception as e:
         return {
             'error': f"Classification failed: {str(e)}",

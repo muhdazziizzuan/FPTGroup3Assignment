@@ -13,6 +13,16 @@ const ModelSelector = ({ selectedModel, onModelChange, isAnalyzing }) => {
       id: 'best_resnet50_model.pth',
       name: 'ResNet50 Classifier',
       description: 'High-accuracy model with deeper architecture'
+    },
+    {
+      id: 'pest_classifier.onnx',
+      name: 'ONNX Classifier',
+      description: 'Cross-platform optimized model with ONNX Runtime'
+    },
+    {
+      id: 'final_pest_model.h5',
+      name: 'Custom TensorFlow Model',
+      description: 'Your custom-trained TensorFlow/Keras model'
     }
   ];
 
